@@ -279,8 +279,8 @@ if __name__ == '__main__':
         file_content = file.read()
 
     # Iterate over all files in the directory and convert them to WAV format
-    for scrip_file in Path("./assets/inputs").glob("*.txt"):
-        with open(scipt_file, 'r') as f:
+    for script_file in Path("./inputs").glob("*.txt"):
+        with open(script_file, 'r') as f:
             input_text = f.read().strip()
 
         print(f"| Start processing {wav_path}+{input_text}")
