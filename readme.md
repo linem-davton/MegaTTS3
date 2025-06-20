@@ -3,7 +3,6 @@
 ## Installation
 
 ```sh
-# Clone the repository
 git clone https://github.com/linem-davton/MegaTTS3
 cd MegaTTS3
 ./setup.sh # Install dependencies and download model
@@ -11,14 +10,18 @@ cd MegaTTS3
 
 ## Running the Model
 
-- Place the script files in `inputs/` directory.
+- Place the script files (.txt files) in `inputs/` directory.
 - Run the model using the provided script:
 
 ```sh
 ./run.sh
 ```
 
-- The output will be saved in the `gen/` directory.
+- Each script file will be converted into an audio file, with the output saved in the `gen/` directory.
+
+> [!WARNING]
+> Everytime you run the model, it will overwrite the existing audio files in the `gen/` directory and will not delete the existing script files in the `inputs/` directory.
+> So make sure to back up any important audio files before running the model again.
 
 ## License
 
