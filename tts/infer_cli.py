@@ -12,31 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import json
 import os
-import argparse
+from pathlib import Path
+
 import librosa
 import numpy as np
+import pyloudnorm as pyln
 import torch
-
-from tn.chinese.normalizer import Normalizer as ZhNormalizer
-from tn.english.normalizer import Normalizer as EnNormalizer
 from langdetect import detect as classify_language
 from pydub import AudioSegment
-import pyloudnorm as pyln
+from tn.chinese.normalizer import Normalizer as ZhNormalizer
+from tn.english.normalizer import Normalizer as EnNormalizer
 
+from tts.frontend_function import (align, dur_pred, g2p, make_dur_prompt,
+                                   prepare_inputs_for_dit)
 from tts.modules.ar_dur.commons.nar_tts_modules import LengthRegulator
-from tts.frontend_function import g2p, align, make_dur_prompt, dur_pred, prepare_inputs_for_dit
-from tts.utils.audio_utils.io import save_wav, to_wav_bytes, convert_to_wav_bytes, combine_audio_segments
+from tts.utils.audio_utils.io import (combine_audio_segments,
+                                      convert_to_wav_bytes, save_wav,
+                                      to_wav_bytes)
 from tts.utils.commons.ckpt_utils import load_ckpt
-from tts.utils.commons.hparams import set_hparams, hparams
-from tts.utils.text_utils.text_encoder import TokenTextEncoder
-from tts.utils.text_utils.split_text import chunk_text_chinese, chunk_text_english, chunk_text_chinesev2
 from tts.utils.commons.hparams import hparams, set_hparams
-
+from tts.utils.text_utils.split_text import (chunk_text_chinese,
+                                             chunk_text_chinesev2,
+                                             chunk_text_english)
+from tts.utils.text_utils.text_encoder import TokenTextEncoder
 
 if "TOKENIZERS_PARALLELISM" not in os.environ:
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 def convert_to_wav(wav_path):
     # Check if the file exists
@@ -61,19 +66,20 @@ def cut_wav(wav_path, max_len=28):
     audio = audio[:int(max_len * 1000)]
     audio.export(wav_path, format="wav")
 
+
 class MegaTTS3DiTInfer():
     def __init__(
-            self, 
-            device=None,
-            ckpt_root='./checkpoints',
-            dit_exp_name='diffusion_transformer',
-            frontend_exp_name='aligner_lm',
-            wavvae_exp_name='wavvae',
-            dur_ckpt_path='duration_lm',
-            g2p_exp_name='g2p',
-            precision=torch.float16,
-            **kwargs
-        ):
+        self,
+        device=None,
+        ckpt_root='./checkpoints',
+        dit_exp_name='diffusion_transformer',
+        frontend_exp_name='aligner_lm',
+        wavvae_exp_name='wavvae',
+        dur_ckpt_path='duration_lm',
+        g2p_exp_name='g2p',
+        precision=torch.float16,
+        **kwargs
+    ):
         self.sr = 24000
         self.fm = 8
         if device is None:
@@ -101,7 +107,8 @@ class MegaTTS3DiTInfer():
         ''' Load Dict '''
         current_dir = os.path.dirname(os.path.abspath(__file__))
         ling_dict = json.load(open(f"{current_dir}/utils/text_utils/dict.json", encoding='utf-8-sig'))
-        self.ling_dict = {k: TokenTextEncoder(None, vocab_list=ling_dict[k], replace_oov='<UNK>') for k in ['phone', 'tone']}
+        self.ling_dict = {k: TokenTextEncoder(
+            None, vocab_list=ling_dict[k], replace_oov='<UNK>') for k in ['phone', 'tone']}
         self.token_encoder = token_encoder = self.ling_dict['phone']
         ph_dict_size = len(token_encoder)
 
@@ -138,7 +145,7 @@ class MegaTTS3DiTInfer():
         self.hooks = None
 
         ''' Load G2P LM'''
-        from transformers import AutoTokenizer, AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoTokenizer
         g2p_tokenizer = AutoTokenizer.from_pretrained(self.g2p_exp_name, padding_side="right")
         g2p_tokenizer.padding_side = "right"
         self.g2p_model = AutoModelForCausalLM.from_pretrained(self.g2p_exp_name).eval().to(device)
@@ -159,7 +166,7 @@ class MegaTTS3DiTInfer():
         self.wavvae.to(device)
         self.vae_stride = hp_wavvae.get('vae_stride', 4)
         self.hop_size = hp_wavvae.get('hop_size', 4)
-    
+
     def preprocess(self, audio_bytes, latent_file=None, topk_dur=1, **kwargs):
         wav_bytes = convert_to_wav_bytes(audio_bytes)
 
@@ -185,11 +192,11 @@ class MegaTTS3DiTInfer():
                 assert latent_file is not None, "Please provide latent_file in WaveVAE decoder-only mode"
                 vae_latent = torch.from_numpy(np.load(latent_file)).to(self.device)
                 vae_latent = vae_latent[:, :mel2ph_ref.size(1)//4]
-        
+
             ''' Duration Prompting '''
             self.dur_model.hparams["infer_top_k"] = topk_dur if topk_dur > 1 else None
             incremental_state_dur_prompt, ctx_dur_tokens = make_dur_prompt(self, mel2ph_ref, ph_ref, tone_ref)
-            
+
         return {
             'ph_ref': ph_ref,
             'tone_ref': tone_ref,
@@ -225,17 +232,19 @@ class MegaTTS3DiTInfer():
                 ph_pred, tone_pred = g2p(self, text)
 
                 ''' Duration Prediction '''
-                mel2ph_pred = dur_pred(self, ctx_dur_tokens, incremental_state_dur_prompt, ph_pred, tone_pred, seg_i, dur_disturb, dur_alpha, is_first=seg_i==0, is_final=seg_i==len(text_segs)-1)
-                
-                inputs = prepare_inputs_for_dit(self, mel2ph_ref, mel2ph_pred, ph_ref, tone_ref, ph_pred, tone_pred, vae_latent)
+                mel2ph_pred = dur_pred(self, ctx_dur_tokens, incremental_state_dur_prompt, ph_pred, tone_pred,
+                                       seg_i, dur_disturb, dur_alpha, is_first=seg_i == 0, is_final=seg_i == len(text_segs)-1)
+
+                inputs = prepare_inputs_for_dit(self, mel2ph_ref, mel2ph_pred, ph_ref,
+                                                tone_ref, ph_pred, tone_pred, vae_latent)
                 # Speech dit inference
                 with torch.cuda.amp.autocast(dtype=self.precision, enabled=True):
                     x = self.dit.inference(inputs, timesteps=time_step, seq_cfg_w=[p_w, t_w]).float()
-                
+
                 # WavVAE decode
                 x[:, :vae_latent.size(1)] = vae_latent
-                wav_pred = self.wavvae.decode(x)[0,0].to(torch.float32)
-                
+                wav_pred = self.wavvae.decode(x)[0, 0].to(torch.float32)
+
                 ''' Post-processing '''
                 # Trim prompt wav
                 wav_pred = wav_pred[vae_latent.size(1)*self.vae_stride*self.hop_size:].cpu().numpy()
@@ -269,10 +278,15 @@ if __name__ == '__main__':
     with open(wav_path, 'rb') as file:
         file_content = file.read()
 
-    print(f"| Start processing {wav_path}+{input_text}")
-    resource_context = infer_ins.preprocess(file_content, latent_file=wav_path.replace('.wav', '.npy'))
-    wav_bytes = infer_ins.forward(resource_context, input_text, time_step=time_step, p_w=p_w, t_w=t_w)
+    # Iterate over all files in the directory and convert them to WAV format
+    for scrip_file in Path("./assets/inputs").glob("*.txt"):
+        with open(scipt_file, 'r') as f:
+            input_text = f.read().strip()
 
-    print(f"| Saving results to {out_path}/[P]{input_text[:20]}.wav")
-    os.makedirs(out_path, exist_ok=True)
-    save_wav(wav_bytes, f'{out_path}/[P]{input_text[:20]}.wav')
+        print(f"| Start processing {wav_path}+{input_text}")
+        resource_context = infer_ins.preprocess(file_content, latent_file=wav_path.replace('.wav', '.npy'))
+        wav_bytes = infer_ins.forward(resource_context, input_text, time_step=time_step, p_w=p_w, t_w=t_w)
+
+        print(f"| Saving results to {out_path}/[P]{input_text[:20]}.wav")
+        os.makedirs(out_path, exist_ok=True)
+        save_wav(wav_bytes, f'{out_path}/[P]{input_text[:20]}.wav')
