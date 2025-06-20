@@ -1,6 +1,6 @@
 inputs/
+gen/
 *.wav
-*.mp3
 *.flac
 *.ogg
 *.aac

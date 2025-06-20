@@ -10,6 +10,18 @@ cd MegaTTS3
 
 ## Running the Model
 
+### GUI
+
+For a user-friendly experience, you can run the model using the graphical user interface (GUI):
+
+```sh
+./gui.sh
+```
+
+### CLI
+
+For batch processing of text files, you can use the command line interface (CLI):
+
 - Place the script files (.txt files) in `inputs/` directory.
 - Run the model using the provided script:
 
