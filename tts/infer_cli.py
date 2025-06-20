@@ -44,6 +44,7 @@ if "TOKENIZERS_PARALLELISM" not in os.environ:
 
 
 def convert_to_wav(wav_path):
+
     # Check if the file exists
     if not os.path.exists(wav_path):
         print(f"The file '{wav_path}' does not exist.")
@@ -287,6 +288,6 @@ if __name__ == '__main__':
         resource_context = infer_ins.preprocess(file_content, latent_file=wav_path.replace('.wav', '.npy'))
         wav_bytes = infer_ins.forward(resource_context, input_text, time_step=time_step, p_w=p_w, t_w=t_w)
 
-        print(f"| Saving results to {out_path}/[P]{input_text[:20]}.wav")
+        print(f"| Saving results to {out_path}/[P]{script_file.stem}.wav")
         os.makedirs(out_path, exist_ok=True)
-        save_wav(wav_bytes, f'{out_path}/[P]{input_text[:20]}.wav')
+        save_wav(wav_bytes, f'{out_path}/[P]{script_file.stem}.wav')
